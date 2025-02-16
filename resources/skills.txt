@@ -1,9 +1,9 @@
-Wazza, Stunts/Acrobatics
-Krumpin', Brawl
-'Ard, Tough
-Mek, Tech
-Dakka, Weapons
-Wheelz, Drive/Vehicles
-Kunnin', Sneak
-Knows wotz, Wits
-Flash, Hot/Charisma
+('Wazza'   ,'Stunts/Acrobatics'),
+('Krumpin' ,'Brawl'),
+('Ard'     ,'Tough'),
+('Mek'     ,'Tech'),
+('Dakka'   ,'Weapons'),
+('Wheelz'  ,'Drive/Vehicles'),
+('Kunnin'  ,'Sneak'),
+('Knows wotz'  , 'Wits'),
+('Flash'   , 'Hot/Charisma'),
