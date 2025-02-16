@@ -15,8 +15,6 @@ import (
 //go:embed krumpin.db
 var embeddedDb embed.FS
 
-var db *sql.DB
-
 func getDatabasePath() string {
 	var configDir string
 	if runtime.GOOS == "windows" {
@@ -54,41 +52,37 @@ func InitialiseDb() error {
 		extractDatabase(dbPath, embeddedDb)
 	}
 	log.Printf("Using database at path: %s", dbPath)
-	var err error
-	db, err = sql.Open("sqlite3", dbPath)
+	db, err := sql.Open("sqlite3", dbPath)
 	if err != nil {
 		log.Printf("Failed to open database at path: %s", dbPath)
 		log.Printf("Error: %s", err)
 		return err
 	}
+	defer db.Close()
 	return nil
 }
 
 func LoadBaseSkills() ([]*models.Skill, error) {
-	rows, err := db.Query("select name, id, description from skills")
+	db, err := sql.Open("sqlite3", getDatabasePath())
+	if err != nil {
+		log.Printf("Failed to open database at path: %s", getDatabasePath())
+		log.Printf("Error: %s", err)
+		return nil, err
+	}
+	defer db.Close()
+	rows, err := db.Query("select id, name, description from skills")
 	if err != nil {
 		log.Printf("Failed to load Skills: %v", err)
 		return nil, err
 	}
-	next := rows.NextResultSet()
-	cols, err := rows.Columns()
-	log.Printf("Loaded Skills: %s", next)
-	log.Printf("Loaded Skills: %s", cols)
-	defer rows.Close()
 
+	log.Printf("Database Connection open: %v, Connections: %v, %v", db.Stats().Idle, db.Stats().OpenConnections, rows.Err())
+
+	defer rows.Close()
 	var skills []*models.Skill
 	for rows.Next() {
 		var skill models.Skill
-		var name string
-		var id int64
-		var description string
-		err := rows.Scan(&id, &name, &description)
-		if err != nil {
-			log.Printf("Failed to scan row: %v", err)
-			return nil, err
-		}
-		log.Printf("Name: %s, id: %d, description: %s", name, id, description)
-		if err := rows.Scan(&skill.Name, &skill.Id, &skill.Description); err != nil {
+		if err := rows.Scan(&skill.Id, &skill.Name, &skill.Description); err != nil {
 			log.Printf("Failed to load Skills: %v", err)
 			return nil, err
 		}

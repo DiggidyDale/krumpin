@@ -3,12 +3,15 @@ package main
 import (
 	"embed"
 	"fmt"
+	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/canvas"
-	"fyne.io/fyne/v2/driver/desktop"
+	"fyne.io/fyne/v2/data/binding"
 	"fyne.io/fyne/v2/theme"
 	"image/color"
-	krumpinDb "krumpin/db"
+	"krumpin/db"
 	"krumpin/models"
+	kTheme "krumpin/theme"
+	"krumpin/utils"
 	"log"
 	"math/rand"
 	"strconv"
@@ -16,7 +19,6 @@ import (
 	"time"
 
 	"fyne.io/fyne/v2"
-	"fyne.io/fyne/v2/app"
 	"fyne.io/fyne/v2/container"
 	"fyne.io/fyne/v2/dialog"
 	"fyne.io/fyne/v2/widget"
@@ -28,13 +30,22 @@ var skillsFile embed.FS
 
 var diceOptions = []string{"d4", "d8", "d10", "d12", "d20"}
 
-func rollDice(dice string) (int, error) {
-	trimmed := strings.TrimPrefix(dice, "d")
+func rollDice(skill binding.String) (int, error) {
+	val, _ := skill.Get()
+	trimmed := strings.TrimPrefix(val, "d")
 	sides, err := strconv.Atoi(trimmed)
 	if err != nil {
-		return 0, fmt.Errorf("invalid dice type: %s", dice)
+		return 0, fmt.Errorf("invalid dice type: %s", skill)
 	}
-	return rand.Intn(sides) + 1, nil
+
+	result := rand.Intn(sides) + 1
+	if result == sides {
+		index := utils.FindIndex(diceOptions, val)
+		if index != -1 && len(diceOptions)-1 != index {
+			_ = skill.Set(diceOptions[index+1])
+		}
+	}
+	return result, nil
 }
 
 func flashAmber(bgRect *canvas.Rectangle, w fyne.Window) {
@@ -76,37 +87,39 @@ func showRollResultDialog(result int, maxSides int, skillName string, parentWind
 
 func newSkillWidget(skill *models.CharacterSkill, parentWindow fyne.Window) *fyne.Container {
 	rollButton := widget.NewButton(skill.Skill.Name, func() {
-		if skill.DiceVal == "" {
+		val, _ := skill.DiceVal.Get()
+		if val == "" {
 			dialog.ShowInformation("Dice Roll", fmt.Sprintf("No dice selected for %s.", skill.Skill.Name), parentWindow)
 			return
 		}
+		trimmed := strings.TrimPrefix(val, "d")
 		result, err := rollDice(skill.DiceVal)
 		if err != nil {
 			dialog.ShowError(err, parentWindow)
 			return
 		}
-		trimmed := strings.TrimPrefix(skill.DiceVal, "d")
 		maxSides, _ := strconv.Atoi(trimmed)
 
 		showRollResultDialog(result, maxSides, skill.Skill.Name, parentWindow)
 	})
 
+	val, _ := skill.DiceVal.Get()
 	diceSelect := widget.NewSelect(diceOptions, func(selected string) {
-		skill.DiceVal = selected
+		val = selected
 	})
-	if skill.DiceVal != "" {
-		diceSelect.SetSelected(skill.DiceVal)
+	if val != "" {
+		diceSelect.SetSelected(val)
 	} else {
-		skill.DiceVal = diceOptions[0]
+		_ = skill.DiceVal.Set(diceOptions[0])
 		diceSelect.SetSelected(diceOptions[0])
 	}
 
-	var infoButton *InfoCircle
+	var infoButton *kTheme.InfoCircle
 	if skill.Skill.Description != "" {
-		infoButton = NewInfoCircle(skill.Skill.Description, parentWindow)
+		infoButton = kTheme.NewInfoCircle(skill.Skill.Description, parentWindow)
 	} else {
 		// Provide a placeholder so layout remains consistent.
-		infoButton = NewInfoCircle("", parentWindow)
+		infoButton = kTheme.NewInfoCircle("", parentWindow)
 		infoButton.Hide() // Hide if no tooltip is needed.
 	}
 
@@ -116,33 +129,6 @@ func newSkillWidget(skill *models.CharacterSkill, parentWindow fyne.Window) *fyn
 		diceSelect,
 	)
 	return skillContainer
-}
-
-type customTheme struct{}
-
-func (c *customTheme) Color(n fyne.ThemeColorName, v fyne.ThemeVariant) color.Color {
-	switch n {
-	case theme.ColorNameBackground:
-		return color.NRGBA{R: 245, G: 245, B: 245, A: 255} // light grey background
-	case theme.ColorNameButton, theme.ColorNameDisabledButton:
-		return color.NRGBA{R: 100, G: 150, B: 250, A: 255} // soft blue for buttons
-	case theme.ColorNameForeground:
-		return color.Black
-
-	}
-	return theme.DefaultTheme().Color(n, v)
-}
-
-func (c *customTheme) Font(s fyne.TextStyle) fyne.Resource {
-	return theme.DefaultTheme().Font(s)
-}
-
-func (c *customTheme) Icon(name fyne.ThemeIconName) fyne.Resource {
-	return theme.DefaultTheme().Icon(name)
-}
-
-func (c *customTheme) Size(s fyne.ThemeSizeName) float32 {
-	return theme.DefaultTheme().Size(s)
 }
 
 func main() {
@@ -158,24 +144,30 @@ func main() {
 	mainContainer.Add(charNameContainer)
 
 	log.Printf("about to initialise db")
-	err := krumpinDb.InitialiseDb()
+	err := db.InitialiseDb()
 	if err != nil {
 		dialog.ShowError(err, w)
 	}
 	log.Printf("db should be initialised")
-	baseSkills, _ := krumpinDb.LoadBaseSkills()
+	baseSkills, _ := db.LoadBaseSkills()
 
 	skillsContainer := container.NewVBox()
 	skillsTitle := widget.NewLabelWithStyle("Skills (Click baseSkill name to roll dice):", fyne.TextAlignLeading, fyne.TextStyle{Bold: true})
 	skillsContainer.Add(skillsTitle)
 
 	for _, baseSkill := range baseSkills {
-		var skill *models.CharacterSkill
-		skill.Skill = *baseSkill
-		skill.DiceVal = diceOptions[0]
+		if baseSkill != nil {
+			skill := &models.CharacterSkill{}
+			skill.Skill = *baseSkill
+			skill.DiceVal = binding.NewString()
+			err := skill.DiceVal.Set(diceOptions[0])
+			if err != nil {
+				dialog.ShowError(err, w)
+			}
 
-		skillUI := newSkillWidget(skill, w)
-		skillsContainer.Add(skillUI)
+			skillUI := newSkillWidget(skill, w)
+			skillsContainer.Add(skillUI)
+		}
 	}
 	mainContainer.Add(skillsContainer)
 	centered := container.NewCenter(mainContainer)
@@ -184,115 +176,3 @@ func main() {
 	w.Resize(fyne.NewSize(400, 300))
 	w.ShowAndRun()
 }
-
-type InfoCircle struct {
-	widget.BaseWidget
-
-	tooltipText  string
-	parentWindow fyne.Window
-	popup        *widget.PopUp
-}
-
-// NewInfoCircle creates a new InfoCircle with the provided tooltip text.
-func NewInfoCircle(tooltipText string, win fyne.Window) *InfoCircle {
-	ic := &InfoCircle{
-		tooltipText:  tooltipText,
-		parentWindow: win,
-	}
-	ic.ExtendBaseWidget(ic)
-	return ic
-}
-
-// CreateRenderer implements fyne.Widget.
-func (ic *InfoCircle) CreateRenderer() fyne.WidgetRenderer {
-	// Create a circle with a border.
-	circle := canvas.NewCircle(color.NRGBA{R: 200, G: 200, B: 250, A: 255})
-	circle.StrokeColor = color.Black
-	circle.StrokeWidth = 1
-
-	// Create a label with "?".
-	label := canvas.NewText("?", color.Black)
-	label.Alignment = fyne.TextAlignCenter
-
-	objects := []fyne.CanvasObject{circle, label}
-
-	return &infoCircleRenderer{
-		ic:      ic,
-		circle:  circle,
-		label:   label,
-		objects: objects,
-	}
-}
-
-// MinSize returns the minimum size of the InfoCircle.
-func (ic *InfoCircle) MinSize() fyne.Size {
-	return fyne.NewSize(20, 20)
-}
-
-type infoCircleRenderer struct {
-	ic      *InfoCircle
-	circle  *canvas.Circle
-	label   *canvas.Text
-	objects []fyne.CanvasObject
-}
-
-// Layout positions the circle and label inside the InfoCircle.
-func (r *infoCircleRenderer) Layout(size fyne.Size) {
-	r.circle.Resize(size)
-	r.circle.Move(fyne.NewPos(0, 0))
-	r.label.Resize(size)
-	r.label.Move(fyne.NewPos(0, 0))
-}
-
-// MinSize returns the minimum size of the renderer.
-func (r *infoCircleRenderer) MinSize() fyne.Size {
-	return fyne.NewSize(20, 20)
-}
-
-// Refresh redraws the widget.
-func (r *infoCircleRenderer) Refresh() {
-	canvas.Refresh(r.ic)
-}
-
-// BackgroundColor returns the background color.
-func (r *infoCircleRenderer) BackgroundColor() color.Color {
-	return color.Transparent
-}
-
-// Objects returns the renderer’s objects.
-func (r *infoCircleRenderer) Objects() []fyne.CanvasObject {
-	return r.objects
-}
-
-// Destroy is a no-op.
-func (r *infoCircleRenderer) Destroy() {}
-
-// Ensure InfoCircle implements desktop.Hoverable.
-var _ desktop.Hoverable = (*InfoCircle)(nil)
-
-// MouseIn is called when the mouse enters the InfoCircle.
-func (ic *InfoCircle) MouseIn(*desktop.MouseEvent) {
-	if ic.tooltipText == "" {
-		return
-	}
-	// Create a label for the tooltip.
-	tooltip := widget.NewLabel(ic.tooltipText)
-	tooltipContainer := container.NewPadded(tooltip)
-	// Create a popup anchored to the canvas.
-	ic.popup = widget.NewPopUp(tooltipContainer, ic.parentWindow.Canvas())
-	// Position the tooltip near the InfoCircle.
-	pos := ic.Position() // position relative to parent container
-	min := ic.MinSize()  // size of the info circle
-	ic.popup.ShowAtPosition(fyne.NewPos(pos.X+min.Width, pos.Y))
-}
-
-// MouseOut is called when the mouse leaves the InfoCircle.
-func (ic *InfoCircle) MouseOut() {
-	if ic.popup != nil {
-		ic.popup.Hide()
-		ic.popup = nil
-	}
-}
-
-// MouseMoved satisfies the desktop.Hoverable interface.
-func (ic *InfoCircle) MouseMoved(*desktop.MouseEvent) {}

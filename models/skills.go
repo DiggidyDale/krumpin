@@ -1,8 +1,10 @@
 package models
 
+import "fyne.io/fyne/v2/data/binding"
+
 type CharacterSkill struct {
 	Skill   Skill
-	DiceVal string
+	DiceVal binding.String
 }
 
 type Skill struct {
