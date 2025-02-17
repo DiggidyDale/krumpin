@@ -28,7 +28,7 @@ import (
 //go:embed resources/skills.txt
 var skillsFile embed.FS
 
-var diceOptions = []string{"d4", "d8", "d10", "d12", "d20"}
+var diceOptions []models.Dice
 
 func rollDice(skill binding.String) (int, error) {
 	val, _ := skill.Get()
@@ -42,7 +42,7 @@ func rollDice(skill binding.String) (int, error) {
 	if result == sides {
 		index := utils.FindIndex(diceOptions, val)
 		if index != -1 && len(diceOptions)-1 != index {
-			_ = skill.Set(diceOptions[index+1])
+			_ = skill.Set(diceOptions[index+1].Value)
 		}
 	}
 	return result, nil
@@ -86,8 +86,16 @@ func showRollResultDialog(result int, maxSides int, skillName string, parentWind
 }
 
 func newSkillWidget(skill *models.CharacterSkill, parentWindow fyne.Window) *fyne.Container {
+	val, _ := skill.DiceVal.Get()
+	var diceOptionsStrings []string
+	for _, dice := range diceOptions {
+		diceOptionsStrings = append(diceOptionsStrings, dice.Value)
+	}
+	diceSelect := widget.NewSelect(diceOptionsStrings, func(selected string) {
+		val = selected
+	})
 	rollButton := widget.NewButton(skill.Skill.Name, func() {
-		val, _ := skill.DiceVal.Get()
+		val, _ = skill.DiceVal.Get()
 		if val == "" {
 			dialog.ShowInformation("Dice Roll", fmt.Sprintf("No dice selected for %s.", skill.Skill.Name), parentWindow)
 			return
@@ -99,14 +107,12 @@ func newSkillWidget(skill *models.CharacterSkill, parentWindow fyne.Window) *fyn
 			return
 		}
 		maxSides, _ := strconv.Atoi(trimmed)
+		val, _ = skill.DiceVal.Get()
+		diceSelect.SetSelected(val)
 
 		showRollResultDialog(result, maxSides, skill.Skill.Name, parentWindow)
 	})
 
-	val, _ := skill.DiceVal.Get()
-	diceSelect := widget.NewSelect(diceOptions, func(selected string) {
-		val = selected
-	})
 	if val != "" {
 		diceSelect.SetSelected(val)
 	} else {
@@ -132,6 +138,15 @@ func newSkillWidget(skill *models.CharacterSkill, parentWindow fyne.Window) *fyn
 }
 
 func main() {
+	log.Printf("about to initialise db")
+	err := db.InitialiseDb()
+	if err != nil {
+		dialog.ShowError(err, w)
+	}
+	log.Printf("db should be initialised")
+
+	db.LoadDice(&diceOptions)
+
 	a := app.NewWithID("uk.co.diggidydale.krumpintracker")
 	w := a.NewWindow("Krump'in Character Tracker")
 
@@ -143,12 +158,6 @@ func main() {
 	charNameContainer := container.NewVBox(nameLabel, nameEntry)
 	mainContainer.Add(charNameContainer)
 
-	log.Printf("about to initialise db")
-	err := db.InitialiseDb()
-	if err != nil {
-		dialog.ShowError(err, w)
-	}
-	log.Printf("db should be initialised")
 	baseSkills, _ := db.LoadBaseSkills()
 
 	skillsContainer := container.NewVBox()
@@ -159,7 +168,7 @@ func main() {
 		if baseSkill != nil {
 			skill := &models.CharacterSkill{}
 			skill.Skill = *baseSkill
-			skill.DiceVal = binding.NewString()
+			skill.DiceVal = binding.DataItem()
 			err := skill.DiceVal.Set(diceOptions[0])
 			if err != nil {
 				dialog.ShowError(err, w)

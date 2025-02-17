@@ -1,8 +1,10 @@
 package utils
 
-func FindIndex(list []string, selected string) int {
+import "krumpin/models"
+
+func FindIndex(list []models.Dice, selected string) int {
 	for i, v := range list {
-		if v == selected {
+		if v.Value == selected {
 			return i
 		}
 	}

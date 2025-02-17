@@ -91,3 +91,25 @@ func LoadBaseSkills() ([]*models.Skill, error) {
 	}
 	return skills, nil
 }
+
+func LoadDice(diceOptions []*models.Dice) {
+	db, err := sql.Open("sqlite3", getDatabasePath())
+	if err != nil {
+		log.Printf("Failed to open database at path: %s", getDatabasePath())
+		log.Printf("Error: %s", err)
+	}
+	defer db.Close()
+	query, err := db.Query("SELECT id, value FROM dice")
+	if err != nil {
+		log.Printf("Failed to load Dice: %v", err)
+	}
+	defer query.Close()
+	for query.Next() {
+		var dice models.Dice
+		if err := query.Scan(&dice.Id, &dice.Value); err != nil {
+			log.Printf("Failed to load Dice: %v", err)
+		}
+		diceOptions = append(diceOptions, &dice)
+	}
+
+}
